@@ -142,6 +142,7 @@ const LiveConversation: React.FC<LiveConversationProps> = ({ language, persona, 
             },
             onmessage: async (message) => {
               if (!mounted) return;
+              
               const audioBase64 = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
               if (audioBase64 && audioContextOutRef.current) {
                 const outCtx = audioContextOutRef.current;
@@ -150,16 +151,22 @@ const LiveConversation: React.FC<LiveConversationProps> = ({ language, persona, 
                 const source = outCtx.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(outCtx.destination);
-                source.addEventListener('ended', () => sourcesRef.current.delete(source));
+                source.addEventListener('ended', () => {
+                  sourcesRef.current.delete(source);
+                });
                 source.start(nextStartTimeRef.current);
                 nextStartTimeRef.current += audioBuffer.duration;
                 sourcesRef.current.add(source);
               }
+
               if (message.serverContent?.interrupted) {
-                sourcesRef.current.forEach(s => s.stop());
+                sourcesRef.current.forEach(s => {
+                  try { s.stop(); } catch(e) {}
+                });
                 sourcesRef.current.clear();
                 nextStartTimeRef.current = 0;
               }
+
               if (message.serverContent?.inputTranscription) {
                 const text = message.serverContent.inputTranscription.text;
                 userTranscriptionRef.current += text;
@@ -186,6 +193,8 @@ const LiveConversation: React.FC<LiveConversationProps> = ({ language, persona, 
                 setCurrentText({ user: '', model: '' });
               }
             },
+            onerror: (e) => console.error("Live session error", e),
+            onclose: () => console.log("Live session closed")
           },
         });
         sessionRef.current = await sessionPromise;

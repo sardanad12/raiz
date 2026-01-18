@@ -22,7 +22,7 @@ const FeedbackReport: React.FC<FeedbackReportProps> = ({ language, transcription
         const conversationText = transcriptions.map(t => `${t.speaker}: ${t.text}`).join('\n');
         
         const response = await ai.models.generateContent({
-          model: 'gemini-3-pro-preview', // Use Pro for deep cultural and phonetic analysis
+          model: 'gemini-3-flash-preview', 
           contents: `Analyze this language learning conversation in ${language.name}. 
           The student is a heritage speaker reconnecting with their roots. Many feel shame about "broken" language.
           
@@ -112,7 +112,6 @@ const FeedbackReport: React.FC<FeedbackReportProps> = ({ language, transcription
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
-        {/* Proficiency markers card */}
         <div className="lg:col-span-7 bg-white p-10 rounded-[3rem] shadow-sm border border-[#d2b48c]/20">
           <div className="flex items-center justify-between mb-12">
             <div>
@@ -133,7 +132,6 @@ const FeedbackReport: React.FC<FeedbackReportProps> = ({ language, transcription
           </div>
         </div>
 
-        {/* Narrative Feedback card */}
         <div className="lg:col-span-5 bg-[#5c4033] text-white p-10 rounded-[3rem] shadow-xl flex flex-col relative overflow-hidden">
           <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
              <svg className="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29L5.21 21L12 18L18.79 21L19.5 20.29L12 2Z"/></svg>

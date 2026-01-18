@@ -50,7 +50,7 @@ const HeritageAlbum: React.FC<HeritageAlbumProps> = ({ rootWords, profile, onUpd
       });
 
       const parts = response.candidates?.[0]?.content?.parts;
-      if (parts) {
+      if (parts && parts.length > 0) {
         for (const part of parts) {
           if (part.inlineData) {
             const imageUrl = `data:image/png;base64,${part.inlineData.data}`;
