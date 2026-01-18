@@ -1,0 +1,7 @@
+{
+  "name": "Raíz - Reconnect with Your Roots",
+  "description": "A compassionate language learning app designed for heritage speakers to practice their native languages in a safe, non-judgmental environment using real-time voice AI.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
