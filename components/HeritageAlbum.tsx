@@ -49,11 +49,14 @@ const HeritageAlbum: React.FC<HeritageAlbumProps> = ({ rootWords, profile, onUpd
         contents: { parts: [{ text: prompt }] },
       });
 
-      for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData) {
-          const imageUrl = `data:image/png;base64,${part.inlineData.data}`;
-          setVisuals(prev => ({ ...prev, [word.id]: imageUrl }));
-          break;
+      const parts = response.candidates?.[0]?.content?.parts;
+      if (parts) {
+        for (const part of parts) {
+          if (part.inlineData) {
+            const imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+            setVisuals(prev => ({ ...prev, [word.id]: imageUrl }));
+            break;
+          }
         }
       }
     } catch (err) {

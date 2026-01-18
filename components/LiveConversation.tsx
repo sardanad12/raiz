@@ -142,7 +142,7 @@ const LiveConversation: React.FC<LiveConversationProps> = ({ language, persona, 
             },
             onmessage: async (message) => {
               if (!mounted) return;
-              const audioBase64 = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+              const audioBase64 = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
               if (audioBase64 && audioContextOutRef.current) {
                 const outCtx = audioContextOutRef.current;
                 nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
