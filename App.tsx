@@ -1,161 +1,227 @@
 
-import React, { useState, useEffect } from 'react';
-import { AppState, Language, Persona, TranscriptionItem, User } from './types';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { AppState, Language, Persona, TranscriptionItem, User, SessionRecord, RootWord, IdentityProfile, LessonPlan } from './types';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 import LanguageSelector from './components/LanguageSelector';
 import LiveConversation from './components/LiveConversation';
 import FeedbackReport from './components/FeedbackReport';
 import Login from './components/Login';
 import Signup from './components/Signup';
+import Dashboard from './components/Dashboard';
+import HeritageAlbum from './components/HeritageAlbum';
+import LessonPlans from './components/LessonPlans';
+import Survey from './components/Survey';
 
 const App: React.FC = () => {
   const [currentState, setCurrentState] = useState<AppState>(AppState.LOGIN);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userSessions, setUserSessions] = useState<SessionRecord[]>([]);
+  const [rootWords, setRootWords] = useState<RootWord[]>([]);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [identity, setIdentity] = useState<IdentityProfile>({ 
+    heritageTitle: '', 
+    primaryDialect: '', 
+    culturalGoal: '',
+    userOrigin: '',
+    parentsOrigin: '',
+    motivation: '',
+    accentStyle: ''
+  });
+  
   const [selectedLanguage, setSelectedLanguage] = useState<Language | null>(null);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
   const [sessionTranscriptions, setSessionTranscriptions] = useState<TranscriptionItem[]>([]);
-  const [isEmbedded, setIsEmbedded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const initRef = useRef(false);
 
-  useEffect(() => {
-    // Check for embed mode
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('embed') === 'true') {
-      setIsEmbedded(true);
-    }
-
-    // Check for existing session
-    const session = localStorage.getItem('raiz_session');
-    if (session) {
-      const user = JSON.parse(session);
-      setCurrentUser(user);
-      setCurrentState(AppState.ONBOARDING);
-    }
+  const loadUserData = useCallback(async (uid: string) => {
+    if (!isSupabaseConfigured || !uid) return;
+    try {
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+      if (profile) {
+        setIdentity({
+          heritageTitle: profile.heritage_title || '',
+          primaryDialect: profile.primary_dialect || '',
+          culturalGoal: profile.cultural_goal || '',
+          userOrigin: profile.user_origin || '',
+          parentsOrigin: profile.parents_origin || '',
+          motivation: profile.motivation || '',
+          accentStyle: profile.accent_style || ''
+        });
+      }
+      const { data: sessions } = await supabase.from('sessions').select('*').eq('user_id', uid).order('created_at', { ascending: false });
+      if (sessions) {
+        setUserSessions(sessions.map(s => ({
+          id: s.id,
+          date: new Date(s.created_at).getTime(),
+          languageCode: s.language_code,
+          languageName: s.language_name,
+          overallScore: s.overall_score,
+          feedbackPreview: s.feedback_preview
+        })));
+      }
+      const { data: words } = await supabase.from('root_words').select('*').eq('user_id', uid);
+      if (words) {
+        setRootWords(words.map(w => ({
+          id: w.id,
+          word: w.word,
+          meaning: w.meaning,
+          culturalSignificance: w.cultural_significance,
+          languageCode: w.language_code
+        })));
+      }
+    } catch (err) { console.warn("[Supabase] Data fetch warning:", err); }
   }, []);
 
-  const handleLogin = (user: User) => {
-    setCurrentUser(user);
+  useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+    const checkInitialAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+        setCurrentUser({ name: session.user.user_metadata.name || 'Explorer', email: session.user.email || '' });
+        await loadUserData(session.user.id);
+        setCurrentState(AppState.DASHBOARD);
+      }
+      setIsLoading(false);
+    };
+    checkInitialAuth();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setUserId(session.user.id);
+        setCurrentUser({ name: session.user.user_metadata.name || 'Explorer', email: session.user.email || '' });
+        if (event === 'SIGNED_IN') loadUserData(session.user.id);
+      } else if (event === 'SIGNED_OUT') {
+        setUserId(null);
+        setCurrentUser(null);
+        setCurrentState(AppState.LOGIN);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [loadUserData]);
+
+  const handleStartLesson = (lesson: LessonPlan) => {
+    setCustomPrompt(lesson.specificRoleplayPrompt || null);
     setCurrentState(AppState.ONBOARDING);
   };
 
-  const handleSignup = (user: User) => {
-    setCurrentUser(user);
-    setCurrentState(AppState.ONBOARDING);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('raiz_session');
-    setCurrentUser(null);
-    setCurrentState(AppState.LOGIN);
-    setSelectedLanguage(null);
-    setSelectedPersona(null);
-    setSessionTranscriptions([]);
-  };
-
-  const handleStartConversation = () => {
-    if (selectedLanguage && selectedPersona) {
-      setCurrentState(AppState.CONVERSATION);
+  const handleSurveyComplete = async (newIdentity: IdentityProfile) => {
+    setIdentity(newIdentity);
+    setCurrentState(AppState.DASHBOARD);
+    setSyncStatus('syncing');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && isSupabaseConfigured) {
+      const payload = {
+        id: user.id,
+        heritage_title: newIdentity.heritageTitle,
+        primary_dialect: newIdentity.primaryDialect,
+        cultural_goal: newIdentity.culturalGoal,
+        user_origin: newIdentity.userOrigin,
+        parents_origin: newIdentity.parentsOrigin,
+        motivation: newIdentity.motivation,
+        accent_style: newIdentity.accentStyle,
+        updated_at: new Date().toISOString()
+      };
+      const { error: syncError } = await supabase.from('profiles').upsert(payload);
+      setSyncStatus(syncError ? 'error' : 'success');
     }
   };
 
-  const handleEndConversation = (transcriptions: TranscriptionItem[]) => {
-    setSessionTranscriptions(transcriptions);
-    setCurrentState(AppState.EVALUATION);
+  const handleAddRootWord = async (word: RootWord) => {
+    setRootWords(prev => [...prev, { ...word, id: `local-${Date.now()}` }]);
+    if (userId) {
+      await supabase.from('root_words').insert({
+        user_id: userId,
+        word: word.word,
+        meaning: word.meaning,
+        cultural_significance: word.culturalSignificance,
+        language_code: word.languageCode
+      });
+    }
   };
 
-  const handleReset = () => {
-    setCurrentState(AppState.ONBOARDING);
-    setSessionTranscriptions([]);
+  const saveNewSession = async (record: SessionRecord) => {
+    setUserSessions(prev => [ { ...record, id: `session-${Date.now()}` }, ...prev]);
+    if (userId) {
+      await supabase.from('sessions').insert({
+        user_id: userId,
+        language_code: record.languageCode,
+        language_name: record.languageName,
+        overall_score: record.overallScore,
+        feedback_preview: record.feedbackPreview
+      });
+    }
   };
+
+  const handleEvaluationComplete = async (score: number, feedbackPreview: string) => {
+    if (!selectedLanguage) return;
+    await saveNewSession({
+      id: '', date: Date.now(),
+      languageCode: selectedLanguage.code,
+      languageName: selectedLanguage.name,
+      overallScore: score,
+      feedbackPreview
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#fcfaf7]">
+        <div className="w-12 h-12 border-4 border-[#5c4033]/20 border-t-[#5c4033] rounded-full animate-spin mb-4"></div>
+        <p className="text-[#5c4033] font-serif">Connecting roots...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className={`min-h-screen text-gray-800 selection:bg-[#d2b48c]/30 ${isEmbedded ? 'bg-transparent' : 'bg-[#fcfaf7]'}`}>
-      {/* Decorative background elements - hidden in embed mode for cleaner integration */}
-      {!isEmbedded && (
-        <div className="fixed inset-0 pointer-events-none opacity-20 overflow-hidden">
-          <div className="absolute top-[-10%] left-[-5%] w-[40%] h-[40%] rounded-full bg-[#2d5a27] blur-[120px]"></div>
-          <div className="absolute bottom-[-10%] right-[-5%] w-[40%] h-[40%] rounded-full bg-[#c27e5d] blur-[120px]"></div>
-        </div>
-      )}
-
-      {!isEmbedded && (
-        <header className="relative z-10 p-6 flex justify-between items-center max-w-7xl mx-auto">
-          <button 
-            onClick={handleReset}
-            className="flex items-center space-x-2 group"
-          >
+    <div className="min-h-screen text-gray-800 bg-[#fcfaf7]">
+      <header className="relative z-10 p-6 flex justify-between items-center max-w-7xl mx-auto">
+        <div className="flex items-center space-x-6">
+          <button onClick={() => setCurrentState(AppState.DASHBOARD)} className="flex items-center space-x-2 group">
             <div className="w-10 h-10 bg-[#5c4033] rounded-lg flex items-center justify-center transition-transform group-hover:rotate-12">
               <span className="text-white font-serif font-bold text-xl">R</span>
             </div>
             <span className="text-[#5c4033] font-serif text-2xl font-bold tracking-tight">Raíz</span>
           </button>
-          <div className="flex items-center space-x-8">
-            <div className="hidden md:flex space-x-8 text-sm font-medium text-[#5c4033]">
-              <a href="#" className="hover:text-[#2d5a27] transition-colors">Our Story</a>
-              <a href="#" className="hover:text-[#2d5a27] transition-colors">Methodology</a>
-            </div>
-            {currentUser && (
-              <div className="flex items-center space-x-4">
-                <span className="text-xs font-bold text-[#5c4033] uppercase tracking-wider bg-[#d2b48c]/20 px-3 py-1 rounded-full">
-                  {currentUser.name}
-                </span>
-                <button 
-                  onClick={handleLogout}
-                  className="text-xs font-bold text-[#c27e5d] hover:text-[#a6684c] uppercase tracking-wider"
-                >
-                  Logout
-                </button>
-              </div>
-            )}
+          <div className="hidden sm:flex items-center space-x-2 px-3 py-1 bg-white rounded-full border border-[#d2b48c]/20 shadow-sm">
+            <div className={`w-2 h-2 rounded-full ${syncStatus === 'success' ? 'bg-green-500' : syncStatus === 'error' ? 'bg-red-500' : syncStatus === 'syncing' ? 'bg-yellow-500 animate-pulse' : 'bg-gray-300'}`}></div>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{syncStatus === 'error' ? 'Sync Error' : userId ? 'Cloud Sync Active' : 'Offline Mode'}</span>
           </div>
-        </header>
-      )}
-
-      <main className={`relative z-10 ${isEmbedded ? 'pt-4' : 'pt-0'}`}>
-        {currentState === AppState.LOGIN && (
-          <Login 
-            onLogin={handleLogin} 
-            onSwitchToSignup={() => setCurrentState(AppState.SIGNUP)} 
-          />
+        </div>
+        {currentUser && (
+          <div className="flex items-center space-x-6">
+            <span className="text-xs font-bold text-[#5c4033] uppercase tracking-wider bg-[#d2b48c]/20 px-3 py-1 rounded-full">{currentUser.name}</span>
+            <button onClick={() => supabase.auth.signOut()} className="text-xs font-bold text-[#c27e5d] uppercase tracking-wider hover:text-[#5c4033] transition-colors">Logout</button>
+          </div>
         )}
+      </header>
 
-        {currentState === AppState.SIGNUP && (
-          <Signup 
-            onSignup={handleSignup} 
-            onSwitchToLogin={() => setCurrentState(AppState.LOGIN)} 
-          />
+      <main className="relative z-10">
+        {currentState === AppState.LOGIN && <Login onSwitchToSignup={() => setCurrentState(AppState.SIGNUP)} />}
+        {currentState === AppState.SIGNUP && <Signup onSignup={() => setCurrentState(AppState.SURVEY)} onSwitchToLogin={() => setCurrentState(AppState.LOGIN)} />}
+        {currentState === AppState.SURVEY && <Survey onComplete={handleSurveyComplete} />}
+        {currentState === AppState.DASHBOARD && (
+          <Dashboard user={currentUser} sessions={userSessions} identity={identity} onStartNew={() => { setCustomPrompt(null); setCurrentState(AppState.ONBOARDING); }} onViewSession={(id) => console.log('View', id)} onOpenAlbum={() => setCurrentState(AppState.HERITAGE_ALBUM)} onOpenPathways={() => setCurrentState(AppState.LESSON_PLANS)} />
         )}
-
+        {currentState === AppState.HERITAGE_ALBUM && (
+          <HeritageAlbum rootWords={rootWords} profile={identity} onUpdateProfile={setIdentity} onAddWord={handleAddRootWord} onBack={() => setCurrentState(AppState.DASHBOARD)} />
+        )}
+        {currentState === AppState.LESSON_PLANS && (
+          <LessonPlans identity={identity} sessions={userSessions} language={selectedLanguage} onBack={() => setCurrentState(AppState.DASHBOARD)} onSelectLanguage={setSelectedLanguage} onStartLesson={handleStartLesson} />
+        )}
         {currentState === AppState.ONBOARDING && (
-          <LanguageSelector
-            selectedLanguage={selectedLanguage}
-            onSelectLanguage={setSelectedLanguage}
-            selectedPersona={selectedPersona}
-            onSelectPersona={setSelectedPersona}
-            onStart={handleStartConversation}
-          />
+          <LanguageSelector selectedLanguage={selectedLanguage} onSelectLanguage={setSelectedLanguage} selectedPersona={selectedPersona} onSelectPersona={setSelectedPersona} onStart={() => setCurrentState(AppState.CONVERSATION)} />
         )}
-
         {currentState === AppState.CONVERSATION && selectedLanguage && selectedPersona && (
-          <LiveConversation
-            language={selectedLanguage}
-            persona={selectedPersona}
-            onEnd={handleEndConversation}
-          />
+          <LiveConversation language={selectedLanguage} persona={selectedPersona} identity={identity} customPrompt={customPrompt} onEnd={(t) => { setSessionTranscriptions(t); setCurrentState(AppState.EVALUATION); }} />
         )}
-
         {currentState === AppState.EVALUATION && selectedLanguage && (
-          <FeedbackReport
-            language={selectedLanguage}
-            transcriptions={sessionTranscriptions}
-            onRestart={handleReset}
-          />
+          <FeedbackReport language={selectedLanguage} transcriptions={sessionTranscriptions} onRestart={() => setCurrentState(AppState.DASHBOARD)} onSave={handleEvaluationComplete} />
         )}
       </main>
-
-      {!isEmbedded && (
-        <footer className="relative z-10 py-12 text-center text-xs text-gray-400">
-          <p>&copy; {new Date().getFullYear()} Raíz Language Reconnection. Made for heritage speakers everywhere.</p>
-        </footer>
-      )}
     </div>
   );
 };

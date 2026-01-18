@@ -1,41 +1,41 @@
 
 import React, { useState } from 'react';
-import { User } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface LoginProps {
-  onLogin: (user: User) => void;
   onSwitchToSignup: () => void;
 }
 
-const Login: React.FC<LoginProps> = ({ onLogin, onSwitchToSignup }) => {
+const Login: React.FC<LoginProps> = ({ onSwitchToSignup }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
     if (!email || !password) {
       setError('Please fill in all fields.');
+      setLoading(false);
       return;
     }
 
-    // Simulated "Backend" check
-    const users = JSON.parse(localStorage.getItem('raiz_users') || '[]');
-    const user = users.find((u: any) => u.email === email && u.password === password);
+    const { error: loginError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    if (user) {
-      const userData: User = { name: user.name, email: user.email };
-      localStorage.setItem('raiz_session', JSON.stringify(userData));
-      onLogin(userData);
-    } else {
-      setError('Invalid email or password.');
+    if (loginError) {
+      setError(loginError.message);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto px-6 py-20">
+    <div className="max-w-md mx-auto px-6 py-20 animate-fade-in">
       <div className="bg-white p-10 rounded-3xl shadow-xl border border-[#d2b48c]/20">
         <h2 className="text-3xl font-serif text-[#5c4033] mb-2 text-center">Welcome Back</h2>
         <p className="text-gray-500 text-center mb-8 text-sm">Continue your journey back to your roots.</p>
@@ -71,9 +71,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, onSwitchToSignup }) => {
 
           <button
             type="submit"
-            className="w-full bg-[#5c4033] text-white py-4 rounded-xl font-bold hover:bg-[#4a3429] transition-all shadow-md transform active:scale-95"
+            disabled={loading}
+            className="w-full bg-[#5c4033] text-white py-4 rounded-xl font-bold hover:bg-[#4a3429] transition-all shadow-md transform active:scale-95 disabled:opacity-50"
           >
-            Sign In
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
 
