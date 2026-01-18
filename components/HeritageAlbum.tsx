@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { RootWord, IdentityProfile, Language } from '../types';
 import { LANGUAGES } from '../constants';
+import { GoogleGenAI } from '@google/genai';
 
 interface HeritageAlbumProps {
   rootWords: RootWord[];
@@ -14,6 +15,8 @@ interface HeritageAlbumProps {
 const HeritageAlbum: React.FC<HeritageAlbumProps> = ({ rootWords, profile, onUpdateProfile, onAddWord, onBack }) => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [newWord, setNewWord] = useState({ word: '', meaning: '', significance: '', lang: 'es' });
+  const [illustratingId, setIllustratingId] = useState<string | null>(null);
+  const [visuals, setVisuals] = useState<Record<string, string>>({});
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +34,33 @@ const HeritageAlbum: React.FC<HeritageAlbumProps> = ({ rootWords, profile, onUpd
       languageCode: newWord.lang
     });
     setNewWord({ word: '', meaning: '', significance: '', lang: 'es' });
+  };
+
+  const illustrateWord = async (word: RootWord) => {
+    setIllustratingId(word.id);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const prompt = `Create a highly artistic, evocative, and culturally rich visual representation of the concept: "${word.word}". 
+      Context: ${word.culturalSignificance}. 
+      Style: Warm, painterly, nostalgic, like an ancestral memory. No text in the image.`;
+      
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: { parts: [{ text: prompt }] },
+      });
+
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          const imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+          setVisuals(prev => ({ ...prev, [word.id]: imageUrl }));
+          break;
+        }
+      }
+    } catch (err) {
+      console.error("Visual generation failed:", err);
+    } finally {
+      setIllustratingId(null);
+    }
   };
 
   return (
@@ -138,18 +168,45 @@ const HeritageAlbum: React.FC<HeritageAlbumProps> = ({ rootWords, profile, onUpd
           </div>
 
           {/* Gallery Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {rootWords.length > 0 ? (
               rootWords.map(rw => (
-                <div key={rw.id} className="bg-white p-6 rounded-2xl shadow-sm border border-[#d2b48c]/20 group hover:shadow-md transition-shadow">
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="text-2xl font-serif text-[#2d5a27] font-bold">{rw.word}</span>
-                    <span className="text-lg">{LANGUAGES.find(l => l.code === rw.languageCode)?.flag}</span>
+                <div key={rw.id} className="bg-white rounded-[2rem] shadow-sm border border-[#d2b48c]/20 group hover:shadow-xl transition-all overflow-hidden flex flex-col">
+                  {visuals[rw.id] ? (
+                    <div className="h-48 w-full relative overflow-hidden">
+                       <img src={visuals[rw.id]} alt={rw.word} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                       <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+                    </div>
+                  ) : illustratingId === rw.id ? (
+                    <div className="h-48 w-full bg-gray-50 flex flex-col items-center justify-center gap-2">
+                       <div className="w-6 h-6 border-2 border-[#2d5a27]/20 border-t-[#2d5a27] rounded-full animate-spin"></div>
+                       <span className="text-[10px] font-bold text-[#2d5a27] uppercase tracking-widest">Dreaming...</span>
+                    </div>
+                  ) : null}
+                  
+                  <div className="p-6 flex-grow">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex flex-col">
+                        <span className="text-2xl font-serif text-[#2d5a27] font-bold">{rw.word}</span>
+                        <span className="text-[10px] font-bold text-[#c27e5d] uppercase tracking-wider">{rw.meaning}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        {!visuals[rw.id] && !illustratingId && (
+                           <button 
+                            onClick={() => illustrateWord(rw)}
+                            className="p-2 bg-[#2d5a27]/5 rounded-full text-[#2d5a27] hover:bg-[#2d5a27]/10 transition-colors"
+                            title="Visualize Memory"
+                           >
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                           </button>
+                        )}
+                        <span className="text-xl">{LANGUAGES.find(l => l.code === rw.languageCode)?.flag}</span>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-600 leading-relaxed italic border-l-2 border-[#d2b48c]/30 pl-3">
+                      "{rw.culturalSignificance}"
+                    </p>
                   </div>
-                  <p className="text-xs font-bold text-[#c27e5d] uppercase mb-2">Meaning: {rw.meaning}</p>
-                  <p className="text-sm text-gray-600 leading-relaxed italic">
-                    "{rw.culturalSignificance}"
-                  </p>
                 </div>
               ))
             ) : (

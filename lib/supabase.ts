@@ -1,13 +1,27 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Browser-safe configuration
-const supabaseUrl = 'https://zbwyxvytvyomrzaahhen.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpid3l4dnl0dnlvbXJ6YWFoaGVuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg3MDIyOTIsImV4cCI6MjA4NDI3ODI5Mn0.7aJ7zzmNHJ0RYhVpDhylDwkKdLYf81LB1LGMoAk5Y_4';
+// Access variables defined via vite.config.ts
+const rawUrl = process.env.SUPABASE_URL;
+const rawKey = process.env.SUPABASE_ANON_KEY;
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
-
-export const supabase = createClient(
-  supabaseUrl,
-  supabaseAnonKey
+// Check for valid configuration (not undefined, not empty, and not a placeholder string)
+export const isSupabaseConfigured = !!(
+  rawUrl && 
+  rawUrl.length > 10 && 
+  rawKey && 
+  rawKey.length > 10
 );
+
+// Fallback to valid URL format to prevent createClient from throwing an error
+const supabaseUrl = isSupabaseConfigured ? rawUrl! : 'https://placeholder.supabase.co';
+const supabaseAnonKey = isSupabaseConfigured ? rawKey! : 'placeholder-key';
+
+if (!isSupabaseConfigured) {
+  console.warn(
+    "Supabase credentials missing or invalid. Authentication and Database features are disabled. " +
+    "Please check your Vercel Environment Variables for SUPABASE_URL and SUPABASE_ANON_KEY."
+  );
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);

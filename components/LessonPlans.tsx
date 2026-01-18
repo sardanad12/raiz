@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { LessonPlan, IdentityProfile, SessionRecord, Language } from '../types';
 import { LANGUAGES } from '../constants';
@@ -7,25 +7,39 @@ import { LANGUAGES } from '../constants';
 interface LessonPlansProps {
   identity: IdentityProfile;
   sessions: SessionRecord[];
+  existingLessons: LessonPlan[];
   language: Language | null;
   onBack: () => void;
   onSelectLanguage: (l: Language) => void;
   onStartLesson: (l: LessonPlan) => void;
+  onSaveLessons: (lessons: LessonPlan[]) => void;
 }
 
-const LessonPlans: React.FC<LessonPlansProps> = ({ identity, sessions, language, onBack, onSelectLanguage, onStartLesson }) => {
-  const [lessons, setLessons] = useState<LessonPlan[]>([]);
+const LessonPlans: React.FC<LessonPlansProps> = ({ 
+  identity, 
+  sessions, 
+  existingLessons,
+  language, 
+  onBack, 
+  onSelectLanguage, 
+  onStartLesson,
+  onSaveLessons
+}) => {
+  const [lessons, setLessons] = useState<LessonPlan[]>(existingLessons);
   const [loading, setLoading] = useState(false);
   const [aiGuideInput, setAiGuideInput] = useState('');
   const [aiGuideResponse, setAiGuideResponse] = useState<string | null>(null);
   const [isAiGuiding, setIsAiGuiding] = useState(false);
+
+  useEffect(() => {
+    setLessons(existingLessons);
+  }, [existingLessons]);
 
   const generatePathways = async () => {
     if (!language) return;
     setLoading(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const recentHistory = sessions.slice(-3).map(s => s.feedbackPreview).join('; ');
       
       const prompt = `
         Generate exactly 6 "Identity Lessons" for a heritage speaker learning ${language.name}.
@@ -66,7 +80,9 @@ const LessonPlans: React.FC<LessonPlansProps> = ({ identity, sessions, language,
       });
 
       if (response.text) {
-        setLessons(JSON.parse(response.text));
+        const generated = JSON.parse(response.text);
+        setLessons(generated);
+        onSaveLessons(generated);
       }
     } catch (err) {
       console.error('Failed to generate pathways:', err);
@@ -190,6 +206,17 @@ const LessonPlans: React.FC<LessonPlansProps> = ({ identity, sessions, language,
               </div>
             </div>
           ))}
+          
+          {lessons.length > 0 && (
+             <div className="flex justify-center mt-12">
+                <button 
+                  onClick={generatePathways}
+                  className="text-xs font-bold text-[#c27e5d] uppercase tracking-widest border-b border-[#c27e5d]/30 hover:text-[#5c4033] transition-colors"
+                >
+                  Regenerate Entire Tree
+                </button>
+             </div>
+          )}
         </div>
       )}
 

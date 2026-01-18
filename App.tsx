@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const [userSessions, setUserSessions] = useState<SessionRecord[]>([]);
   const [rootWords, setRootWords] = useState<RootWord[]>([]);
+  const [lessonPlans, setLessonPlans] = useState<LessonPlan[]>([]);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [identity, setIdentity] = useState<IdentityProfile>({ 
     heritageTitle: '', 
@@ -39,6 +40,7 @@ const App: React.FC = () => {
   const loadUserData = useCallback(async (uid: string) => {
     if (!isSupabaseConfigured || !uid) return;
     try {
+      // Load Profile
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
       if (profile) {
         setIdentity({
@@ -51,6 +53,8 @@ const App: React.FC = () => {
           accentStyle: profile.accent_style || ''
         });
       }
+
+      // Load Sessions
       const { data: sessions } = await supabase.from('sessions').select('*').eq('user_id', uid).order('created_at', { ascending: false });
       if (sessions) {
         setUserSessions(sessions.map(s => ({
@@ -62,6 +66,8 @@ const App: React.FC = () => {
           feedbackPreview: s.feedback_preview
         })));
       }
+
+      // Load Root Words
       const { data: words } = await supabase.from('root_words').select('*').eq('user_id', uid);
       if (words) {
         setRootWords(words.map(w => ({
@@ -70,6 +76,22 @@ const App: React.FC = () => {
           meaning: w.meaning,
           culturalSignificance: w.cultural_significance,
           languageCode: w.language_code
+        })));
+      }
+
+      // Load Lesson Plans
+      const { data: plans } = await supabase.from('lesson_plans').select('*').eq('user_id', uid);
+      if (plans) {
+        setLessonPlans(plans.map(p => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          focusArea: p.focus_area,
+          culturalContext: p.cultural_context,
+          suggestedVocabulary: p.suggested_vocabulary,
+          isCompleted: p.is_completed,
+          difficulty: p.difficulty,
+          specificRoleplayPrompt: p.specific_roleplay_prompt
         })));
       }
     } catch (err) { console.warn("[Supabase] Data fetch warning:", err); }
@@ -106,6 +128,24 @@ const App: React.FC = () => {
   const handleStartLesson = (lesson: LessonPlan) => {
     setCustomPrompt(lesson.specificRoleplayPrompt || null);
     setCurrentState(AppState.ONBOARDING);
+  };
+
+  const handleSaveLessons = async (newLessons: LessonPlan[]) => {
+    setLessonPlans(newLessons);
+    if (userId && isSupabaseConfigured) {
+      const payloads = newLessons.map(l => ({
+        user_id: userId,
+        title: l.title,
+        description: l.description,
+        focus_area: l.focusArea,
+        cultural_context: l.culturalContext,
+        suggested_vocabulary: l.suggestedVocabulary,
+        difficulty: l.difficulty,
+        specific_roleplay_prompt: l.specificRoleplayPrompt,
+        is_completed: false
+      }));
+      await supabase.from('lesson_plans').insert(payloads);
+    }
   };
 
   const handleSurveyComplete = async (newIdentity: IdentityProfile) => {
@@ -210,7 +250,7 @@ const App: React.FC = () => {
           <HeritageAlbum rootWords={rootWords} profile={identity} onUpdateProfile={setIdentity} onAddWord={handleAddRootWord} onBack={() => setCurrentState(AppState.DASHBOARD)} />
         )}
         {currentState === AppState.LESSON_PLANS && (
-          <LessonPlans identity={identity} sessions={userSessions} language={selectedLanguage} onBack={() => setCurrentState(AppState.DASHBOARD)} onSelectLanguage={setSelectedLanguage} onStartLesson={handleStartLesson} />
+          <LessonPlans identity={identity} sessions={userSessions} existingLessons={lessonPlans} language={selectedLanguage} onBack={() => setCurrentState(AppState.DASHBOARD)} onSelectLanguage={setSelectedLanguage} onStartLesson={handleStartLesson} onSaveLessons={handleSaveLessons} />
         )}
         {currentState === AppState.ONBOARDING && (
           <LanguageSelector selectedLanguage={selectedLanguage} onSelectLanguage={setSelectedLanguage} selectedPersona={selectedPersona} onSelectPersona={setSelectedPersona} onStart={() => setCurrentState(AppState.CONVERSATION)} />
